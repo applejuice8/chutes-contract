@@ -6,9 +6,9 @@ export const CHUTES_AUTH_CONFIG = {
   clientSecret: process.env.CHUTES_OAUTH_CLIENT_SECRET!,
   redirectUri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/chutes/callback`,
   scopes: ["openid", "profile", "chutes:invoke"],
-  authorizationEndpoint: `${CHUTES_IDP_BASE}/oauth2/authorize`,
-  tokenEndpoint: `${CHUTES_IDP_BASE}/oauth2/token`,
-  userInfoEndpoint: `${CHUTES_IDP_BASE}/oauth2/userinfo`,
+  authorizationEndpoint: `${CHUTES_IDP_BASE}/authorize`,
+  tokenEndpoint: `${CHUTES_IDP_BASE}/token`,
+  userInfoEndpoint: `${CHUTES_IDP_BASE}/userinfo`,
 };
 
 // --- PKCE helpers ---
