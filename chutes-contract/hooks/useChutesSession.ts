@@ -10,6 +10,20 @@ interface SessionState {
   user: ChutesUser | null;
 }
 
+async function loadSession(): Promise<SessionState> {
+  try {
+    const res = await fetch("/api/auth/chutes/session");
+    if (res.ok) {
+      const data = await res.json();
+      return { isLoading: false, isSignedIn: true, user: data.user };
+    }
+  } catch {
+    // Fall through to the signed-out state below.
+  }
+
+  return { isLoading: false, isSignedIn: false, user: null };
+}
+
 export function useChutesSession() {
   const [state, setState] = useState<SessionState>({
     isLoading: true,
@@ -18,22 +32,22 @@ export function useChutesSession() {
   });
 
   const fetchSession = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auth/chutes/session");
-      if (res.ok) {
-        const data = await res.json();
-        setState({ isLoading: false, isSignedIn: true, user: data.user });
-      } else {
-        setState({ isLoading: false, isSignedIn: false, user: null });
-      }
-    } catch {
-      setState({ isLoading: false, isSignedIn: false, user: null });
-    }
+    setState(await loadSession());
   }, []);
 
   useEffect(() => {
-    fetchSession();
-  }, [fetchSession]);
+    let isActive = true;
+
+    loadSession().then((session) => {
+      if (isActive) {
+        setState(session);
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const logout = useCallback(async () => {
     await fetch("/api/auth/chutes/logout", { method: "POST" });
