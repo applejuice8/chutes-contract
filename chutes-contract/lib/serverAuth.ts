@@ -1,4 +1,3 @@
-// src/lib/serverAuth.ts
 // Server-side utilities for reading the session cookie
 import { cookies } from "next/headers";
 import type { ChutesUser } from "./chutesAuth";
@@ -12,6 +11,7 @@ export interface ChutesSession {
   expiresAt: number;
 }
 
+// Extract Data from Cookie Server Side
 export async function getServerSession(): Promise<ChutesSession | null> {
   const cookieStore = await cookies();
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
@@ -24,6 +24,7 @@ export async function getServerSession(): Promise<ChutesSession | null> {
   }
 }
 
+// Returns The Value As A String
 export async function getServerAccessToken(): Promise<string | null> {
   const session = await getServerSession();
   if (!session) return null;
@@ -31,6 +32,7 @@ export async function getServerAccessToken(): Promise<string | null> {
   return session.accessToken;
 }
 
+// Convert to String from JSON for Safe Storage
 export function encodeSession(session: ChutesSession): string {
   return Buffer.from(JSON.stringify(session)).toString("base64");
 }

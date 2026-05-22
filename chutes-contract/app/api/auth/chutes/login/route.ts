@@ -7,7 +7,6 @@ import {
   generateState,
 } from "@/lib/chutesAuth";
 
-
 export async function GET() {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -27,7 +26,7 @@ export async function GET() {
 
   const res = NextResponse.redirect(authUrl);
 
-  // Store verifier + state in short-lived cookies for the callback
+  // Attach cookies for the redirect command
   res.cookies.set("chutes_pkce_verifier", codeVerifier, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

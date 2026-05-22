@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
       expiresAt: Date.now() + tokens.expires_in * 1000,
     };
 
+    // Redirect on Success
     const res = NextResponse.redirect(new URL("/dashboard", req.url));
 
     res.cookies.set(SESSION_COOKIE, encodeSession(session), {
