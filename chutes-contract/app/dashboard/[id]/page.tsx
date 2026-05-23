@@ -147,39 +147,26 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
           <Metric label="Clauses Flagged" value={`${highRiskCount + mediumRiskCount}`} />
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
-          <aside className="rounded-lg border border-white/8 bg-white/[0.025] p-4 xl:sticky xl:top-6 xl:self-start">
-            <p className="px-1 text-xs font-semibold uppercase tracking-[0.2em] text-white/30">
+        <section className="mx-auto flex w-full max-w-4xl flex-col gap-4">
+          <div className="text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#c8f47b]/75">
               On-chain pipeline
             </p>
-            <nav className="mt-4 flex flex-col gap-2">
-              {contract.pipelineStages.map((stage) => (
-                <a
-                  key={stage.stageNumber}
-                  href={`#stage-${stage.stageNumber}`}
-                  className="group rounded-lg border border-white/6 bg-white/[0.02] p-3 transition hover:border-[#c8f47b]/25 hover:bg-white/[0.045]"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#c8f47b] text-xs font-bold text-[#0f0f0e]">
-                      {String(stage.stageNumber).padStart(2, "0")}
-                    </span>
-                    <span className="text-sm font-medium text-white/78 group-hover:text-white">
-                      {stage.agentName}
-                    </span>
-                  </div>
-                  <p className="mt-2 line-clamp-2 pl-10 text-xs leading-5 text-white/35">
-                    {stage.description}
-                  </p>
-                </a>
-              ))}
-            </nav>
-          </aside>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+              Agent analysis trace
+            </h2>
+            <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-white/45">
+              Expand each step to see what Chutes.ai extracted, scored,
+              translated, and recommended for this contract.
+            </p>
+          </div>
 
-          <div className="flex flex-col gap-5">
-            <PipelineCard
+          <div className="flex flex-col gap-3">
+            <PipelineDropdown
               number={1}
               title="Document Parser On-chain"
               kicker="Extracted source material and classified the document"
+              defaultOpen
             >
               <div className="grid gap-4 md:grid-cols-3">
                 <InfoBlock label="Detected type" value={contract.contractType} />
@@ -199,9 +186,9 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
                   clauses for downstream risk analysis.
                 </p>
               </div>
-            </PipelineCard>
+            </PipelineDropdown>
 
-            <PipelineCard
+            <PipelineDropdown
               number={2}
               title="Clause Extractor On-chain"
               kicker="Segmented the contract into reviewable clause units"
@@ -211,9 +198,9 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
                   <ClauseText key={clause.id} clause={clause} />
                 ))}
               </div>
-            </PipelineCard>
+            </PipelineDropdown>
 
-            <PipelineCard
+            <PipelineDropdown
               number={3}
               title="Risk Scorer On-chain"
               kicker="Rated each clause and explained the legal concern"
@@ -243,9 +230,9 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
                   );
                 })}
               </div>
-            </PipelineCard>
+            </PipelineDropdown>
 
-            <PipelineCard
+            <PipelineDropdown
               number={4}
               title="Plain-English Translator On-chain"
               kicker="Converted legal wording into direct user impact"
@@ -260,9 +247,9 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
                   />
                 ))}
               </div>
-            </PipelineCard>
+            </PipelineDropdown>
 
-            <PipelineCard
+            <PipelineDropdown
               number={5}
               title="Negotiation Advisor On-chain"
               kicker="Generated specific counterparty-ready rewrite guidance"
@@ -277,9 +264,9 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
                   />
                 ))}
               </div>
-            </PipelineCard>
+            </PipelineDropdown>
 
-            <PipelineCard
+            <PipelineDropdown
               number={6}
               title="Summary Agent On-chain"
               kicker="Compressed clause-level evidence into the final verdict"
@@ -301,7 +288,7 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
                   </span>
                 </div>
               </div>
-            </PipelineCard>
+            </PipelineDropdown>
           </div>
         </section>
       </div>
@@ -320,40 +307,64 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PipelineCard({
+function PipelineDropdown({
   number,
   title,
   kicker,
   children,
+  defaultOpen = false,
 }: {
   number: number;
   title: string;
   kicker: string;
   children: ReactNode;
+  defaultOpen?: boolean;
 }) {
   return (
-    <article
+    <details
+      open={defaultOpen}
       id={`stage-${number}`}
-      className="scroll-mt-6 rounded-lg border border-white/8 bg-white/[0.025] p-5"
+      className="group scroll-mt-6 rounded-lg border border-white/8 bg-white/[0.025] [&>summary::-webkit-details-marker]:hidden"
     >
-      <div className="mb-5 flex flex-col gap-3 border-b border-white/5 pb-5 md:flex-row md:items-start md:justify-between">
-        <div className="flex gap-4">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 transition hover:bg-white/[0.03]">
+        <div className="flex min-w-0 gap-4">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#c8f47b] text-sm font-bold text-[#0f0f0e]">
             {String(number).padStart(2, "0")}
           </span>
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight text-white">
-              {title}
-            </h2>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="text-lg font-semibold tracking-tight text-white">
+                {title}
+              </h2>
+              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+                Complete
+              </span>
+            </div>
             <p className="mt-1 text-sm leading-6 text-white/42">{kicker}</p>
           </div>
         </div>
-        <span className="w-fit rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-100">
-          Complete
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 text-white/45 transition group-open:rotate-180 group-hover:border-[#c8f47b]/35 group-hover:text-[#c8f47b]"
+          aria-hidden="true"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="m6 9 6 6 6-6"
+            />
+          </svg>
         </span>
-      </div>
-      {children}
-    </article>
+      </summary>
+      <div className="border-t border-white/5 p-5 pt-5">{children}</div>
+    </details>
   );
 }
 
