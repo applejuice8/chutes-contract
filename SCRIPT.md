@@ -20,19 +20,16 @@ So this is the demo of our product
 
 ---
 
-**Say:**
-> "Here's the part nobody else has. Level 1: the document hash proves we analyzed
-> exactly the file I uploaded — nothing swapped. Level 2: the exact model
-> identity. Level 3: a TDX quote signed by Intel's CPU-fused key, bound to a
-> fresh nonce so it can't be replayed. Watch — I can verify it independently."
+- "Here's the part nobody else has.
+- Level 1: the document hash proves we analyzed exactly the file I uploaded — nothing swapped.
+- Level 2: the exact model identity
+- Level 3: a TDX quote signed by Intel's CPU-fused key so it can't be replayed
 
+- And here we can also verify
 
-**Do:** Click **"Verify TDX Quote ↗"** → a new tab opens the public attestation
-explorer showing Intel's signature chain and measurements.
+This is Phala Network's TEE Attestation Explorer (proof.t16z.com) — a public, independent tool letting anyone verify and analyze Intel SGX and TDX attestation reports. 
 
-This is Phala Network's TEE Attestation Explorer (proof.t16z.com) — a public, independent tool that takes a raw hardware attestation quote and decodes/verifies it. It's described as a secure and comprehensive analysis tool for TEE attestation reports, letting anyone verify and analyze Intel SGX and TDX attestation reports. 
-
-> "That's a third-party verifier — you don't even have to trust *us*."
+- "That's a third-party verifier — you don't even have to trust *us*."
 
 **Optional:** Click **"⬇ Download JSON"** to show the full receipt is portable —
 "hand this to a counterparty or auditor."

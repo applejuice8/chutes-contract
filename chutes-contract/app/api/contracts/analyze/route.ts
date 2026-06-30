@@ -9,6 +9,13 @@ import {
   TEEEvidence,
 } from "@/lib/teeAttestation";
 
+// The 6-agent TEE pipeline can run for minutes. On Vercel, a function is killed
+// at its maxDuration. 300s is the max for Hobby (with Fluid Compute enabled) and
+// a safe default for Pro/Enterprise (which can go higher). Keep
+// CHUTES_AGENT_TIMEOUT_MS comfortably below this so a single slow agent fails
+// gracefully instead of the whole function being terminated by the platform.
+export const maxDuration = 300;
+
 // Inference (OpenAI-compatible chat completions) lives on the llm.* host.
 // The api.* host is management/billing/OAuth only and returns 403 for inference.
 const CHUTES_LLM_API = "https://llm.chutes.ai/v1";
