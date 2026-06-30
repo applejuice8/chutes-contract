@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerAccessToken } from "@/lib/serverAuth";
+import { getServerSession } from "@/lib/serverAuth";
+import { saveAnalysis } from "@/lib/db";
 import {
   generateNonce,
   sha256HexBuffer,
@@ -134,17 +135,37 @@ function stripFences(text: string): string {
     .trim();
 }
 
+/**
+ * Parse JSON from an agent response, tolerating markdown fences. Returns the
+ * provided fallback (and logs) if parsing fails, so one flaky agent can't take
+ * down the whole pipeline.
+ */
+function safeParse<T>(
+  raw: string,
+  fallback: T,
+  log: (m: string) => void,
+  label: string
+): T {
+  try {
+    return JSON.parse(stripFences(raw)) as T;
+  } catch (e) {
+    log(`failed to parse ${label}: ${e instanceof Error ? e.message : e}`);
+    return fallback;
+  }
+}
+
 export async function POST(req: NextRequest) {
   const requestId = crypto.randomUUID().slice(0, 8);
   const log = makeLogger(requestId);
   log("request received");
 
   // 1. Auth gate
-  const accessToken = await getServerAccessToken();
-  if (!accessToken) {
+  const session = await getServerSession();
+  if (!session || Date.now() > session.expiresAt) {
     log("rejected: not authenticated");
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const accessToken = session.accessToken;
 
   // 2. Read file
   const formData = await req.formData();
@@ -196,97 +217,228 @@ export async function POST(req: NextRequest) {
     }
   );
 
+  // Reusable agent runner bound to this request's token + logger.
+  const run = (
+    stage: string,
+    system: string,
+    input: string,
+    maxTokens: number
+  ) => callChutesAgent(accessToken, stage, system, input, maxTokens, log);
+
   try {
-    // 5. Analyst — single pass that parses, extracts, scores, translates, and
-    //    advises. Combining these avoids re-emitting the full clause array once
-    //    per field (the old 6-call pipeline regenerated all clause text ~3x).
-    const analystRaw = await callChutesAgent(
-      accessToken,
-      "Stage 1-5/6 Analyst (parse+extract+score+translate+advise)",
-      `You are an expert contract analyst. Analyze the contract and return a SINGLE JSON object.
-First identify the contract type (NDA, Employment, Vendor, Lease, or Other) and the parties.
-Then segment the contract into discrete clauses. For EACH clause, provide all fields below in one pass.
-Respond ONLY with valid JSON, no markdown fences, no preamble:
+    // ── Phase 1: Parser + Extractor (parallel — both read the raw text) ──
+    const [parserRaw, extractorRaw] = await Promise.all([
+      run(
+        "Stage 1/6 Document Parser",
+        `You are a document parser for contracts. Identify the document's metadata.
+Respond ONLY with valid JSON, no markdown fences:
 {
-  "contractType": string,
+  "contractType": "NDA" | "Employment" | "Vendor" | "Lease" | "Other",
   "parties": [{ "name": string, "role": string }],
+  "governingLaw": string (jurisdiction / governing law, or "Not specified"),
+  "effectiveDate": string (or "Not specified")
+}`,
+        contractText,
+        700
+      ),
+      run(
+        "Stage 2/6 Clause Extractor",
+        `You are a clause extraction agent. Segment the contract into discrete, non-overlapping clauses.
+Respond ONLY with valid JSON, no markdown fences:
+{
   "clauses": [{
-    "id": string,
-    "category": string,
-    "title": string,
-    "text": string (the clause text, kept concise),
-    "riskLevel": "LOW" | "MEDIUM" | "HIGH",
-    "riskReason": string (one sentence),
-    "plainEnglish": string (what it means for a non-lawyer),
-    "suggestedRewrite": string (redline language to negotiate a better deal, or "No changes needed."),
-    "negotiationPriority": "MUST_CHANGE" | "SHOULD_CHANGE" | "OPTIONAL" | "ACCEPT"
+    "id": string (stable id like "c1", "c2", ...),
+    "category": string (e.g. Payment Terms, Liability, IP Rights, Termination, Non-Compete, Confidentiality),
+    "title": string (short label),
+    "text": string (the clause text, kept concise but faithful)
   }]
 }`,
-      contractText,
-      8192,
-      log
+        contractText,
+        4096
+      ),
+    ]);
+
+    const meta = safeParse<{
+      contractType?: string;
+      parties?: Array<{ name: string; role: string }>;
+      governingLaw?: string;
+      effectiveDate?: string;
+    }>(parserRaw, {}, log, "parser");
+
+    const extracted = safeParse<{
+      clauses?: Array<{
+        id?: string;
+        category?: string;
+        title?: string;
+        text?: string;
+      }>;
+    }>(extractorRaw, { clauses: [] }, log, "extractor");
+
+    // Canonical clause list — every downstream agent references these ids, and
+    // we merge their outputs back in by id. This keeps payloads small and stops
+    // the clause text from drifting between agents.
+    interface Clause {
+      id: string;
+      category: string;
+      title: string;
+      text: string;
+      riskLevel: "LOW" | "MEDIUM" | "HIGH";
+      riskReason: string;
+      plainEnglish: string;
+      suggestedRewrite: string;
+      negotiationPriority: string;
+    }
+    const clauses: Clause[] = (extracted.clauses ?? []).map((c, i) => ({
+      id: c.id || `c${i + 1}`,
+      category: c.category || "Clause",
+      title: c.title || c.category || `Clause ${i + 1}`,
+      text: c.text || "",
+      riskLevel: "MEDIUM",
+      riskReason: "",
+      plainEnglish: "",
+      suggestedRewrite: "",
+      negotiationPriority: "OPTIONAL",
+    }));
+    const byId = new Map(clauses.map((c) => [c.id, c]));
+    const contractType = meta.contractType || "Other";
+    log(`extracted ${clauses.length} clauses; type=${contractType}`);
+
+    // Compact digest passed to per-clause agents.
+    const clauseDigest = JSON.stringify(
+      clauses.map((c) => ({
+        id: c.id,
+        category: c.category,
+        title: c.title,
+        text: c.text,
+      }))
     );
 
-    // 6. Summary — small, bounded call over the analyzed clauses.
-    const summaryRaw = await callChutesAgent(
-      accessToken,
+    // ── Phase 2: Risk Scorer + Plain-English Translator (parallel) ──
+    const [scoresRaw, translationsRaw] = await Promise.all([
+      run(
+        "Stage 3/6 Risk Scorer",
+        `You are a contract risk scorer. For EACH clause id, rate the risk to the party reviewing the contract.
+Respond ONLY with valid JSON, no markdown fences:
+{ "scores": [{ "id": string, "riskLevel": "LOW" | "MEDIUM" | "HIGH", "riskReason": string (one sentence) }] }`,
+        clauseDigest,
+        2048
+      ),
+      run(
+        "Stage 4/6 Plain-English Translator",
+        `You translate legal clauses into plain English for a non-lawyer. For EACH clause id, explain what it means in practice.
+Respond ONLY with valid JSON, no markdown fences:
+{ "translations": [{ "id": string, "plainEnglish": string }] }`,
+        clauseDigest,
+        2048
+      ),
+    ]);
+
+    // Merge risk scores into the canonical clauses.
+    const scores = safeParse<{
+      scores?: Array<{ id: string; riskLevel?: string; riskReason?: string }>;
+    }>(scoresRaw, { scores: [] }, log, "scorer");
+    for (const s of scores.scores ?? []) {
+      const c = byId.get(s.id);
+      if (!c) continue;
+      if (s.riskLevel === "LOW" || s.riskLevel === "MEDIUM" || s.riskLevel === "HIGH") {
+        c.riskLevel = s.riskLevel;
+      }
+      if (s.riskReason) c.riskReason = s.riskReason;
+    }
+
+    // Merge plain-English translations.
+    const translations = safeParse<{
+      translations?: Array<{ id: string; plainEnglish?: string }>;
+    }>(translationsRaw, { translations: [] }, log, "translator");
+    for (const t of translations.translations ?? []) {
+      const c = byId.get(t.id);
+      if (c && t.plainEnglish) c.plainEnglish = t.plainEnglish;
+    }
+
+    // ── Phase 3: Negotiation Advisor (depends on risk scores) ──
+    const scoredDigest = JSON.stringify(
+      clauses.map((c) => ({
+        id: c.id,
+        category: c.category,
+        title: c.title,
+        text: c.text,
+        riskLevel: c.riskLevel,
+        riskReason: c.riskReason,
+      }))
+    );
+    const adviceRaw = await run(
+      "Stage 5/6 Negotiation Advisor",
+      `You are a negotiation advisor. For EACH clause id, suggest concrete redline language to negotiate a better deal with the other party, plus a priority. Focus effort on higher-risk clauses.
+Respond ONLY with valid JSON, no markdown fences:
+{ "advice": [{ "id": string, "suggestedRewrite": string (or "No changes needed."), "negotiationPriority": "MUST_CHANGE" | "SHOULD_CHANGE" | "OPTIONAL" | "ACCEPT" }] }`,
+      scoredDigest,
+      2560
+    );
+    const advice = safeParse<{
+      advice?: Array<{
+        id: string;
+        suggestedRewrite?: string;
+        negotiationPriority?: string;
+      }>;
+    }>(adviceRaw, { advice: [] }, log, "advisor");
+    for (const a of advice.advice ?? []) {
+      const c = byId.get(a.id);
+      if (!c) continue;
+      if (a.suggestedRewrite) c.suggestedRewrite = a.suggestedRewrite;
+      if (a.negotiationPriority) c.negotiationPriority = a.negotiationPriority;
+    }
+
+    // ── Phase 4: Summary Agent (sees the whole picture) ──
+    const summaryInput = JSON.stringify({
+      contractType,
+      clauses: clauses.map((c) => ({
+        id: c.id,
+        category: c.category,
+        riskLevel: c.riskLevel,
+        riskReason: c.riskReason,
+      })),
+    });
+    const summaryRaw = await run(
       "Stage 6/6 Summary Agent",
-      `You are a contract summary agent. Given an analyzed contract JSON object, produce a high-level summary.
+      `You are a contract summary agent. Given the analyzed clauses, produce a high-level verdict that wraps everything into a concise summary.
 Respond ONLY with valid JSON, no markdown fences:
 {
   "overallRisk": "GREEN" | "AMBER" | "RED",
   "summary": string (2-3 sentences),
-  "keyRisks": [string] (top 3 risks),
+  "keyRisks": [string] (top 3-5 risks),
   "topRecommendation": string (the single most important change to negotiate)
 }
-Base the verdict on: GREEN = mostly LOW risk, AMBER = several MEDIUM risks, RED = any HIGH risks present.`,
-      analystRaw,
-      600,
-      log
+Base the verdict on: GREEN = mostly LOW risk, AMBER = several MEDIUM risks, RED = any HIGH-risk clause present.`,
+      summaryInput,
+      700
     );
-
-    // 7. Await TEE evidence (was fetching in parallel)
-    log("all stages complete; awaiting TEE evidence");
-    const evidence = await evidencePromise;
-
-    // 8. Parse outputs safely
-    let clauses: unknown[] = [];
-    let summaryData: Record<string, unknown> = {};
-    let parsedMeta: Record<string, unknown> = {};
-
-    try {
-      const analyst = JSON.parse(stripFences(analystRaw)) as {
-        contractType?: unknown;
-        parties?: unknown;
-        clauses?: unknown[];
-      };
-      parsedMeta = {
-        contractType: analyst.contractType ?? "Unknown",
-        parties: analyst.parties ?? [],
-      };
-      clauses = Array.isArray(analyst.clauses) ? analyst.clauses : [];
-    } catch (e) {
-      log(`failed to parse analyst output: ${e instanceof Error ? e.message : e}`);
-      parsedMeta = { contractType: "Unknown", parties: [] };
-      clauses = [];
-    }
-
-    try {
-      summaryData = JSON.parse(stripFences(summaryRaw));
-    } catch (e) {
-      log(`failed to parse summary: ${e instanceof Error ? e.message : e}`);
-      summaryData = {
+    const summaryData = safeParse<Record<string, unknown>>(
+      summaryRaw,
+      {
         overallRisk: "AMBER",
         summary: "Analysis complete.",
         keyRisks: [],
         topRecommendation: "",
-      };
-    }
+      },
+      log,
+      "summary"
+    );
 
-    // 9. Build notarization receipt
+    // Await TEE evidence (was fetching in parallel since the start).
+    log("all agent stages complete; awaiting TEE evidence");
+    const evidence = await evidencePromise;
+
+    // Build notarization receipt over every agent's raw output.
     const receipt = await buildReceipt({
       contractHash,
-      analysisText: analystRaw + summaryRaw,
+      analysisText: [
+        parserRaw,
+        extractorRaw,
+        scoresRaw,
+        translationsRaw,
+        adviceRaw,
+        summaryRaw,
+      ].join("\n"),
       modelId: MODEL,
       chuteId: CHUTE_ID,
       nonce,
@@ -295,16 +447,18 @@ Base the verdict on: GREEN = mostly LOW risk, AMBER = several MEDIUM risks, RED 
     });
 
     log(
-      `complete — ${(clauses as unknown[]).length} clauses, risk=${summaryData.overallRisk ?? "AMBER"}, TEE=${
-        receipt.tdxQuote !== "unavailable" ? "verified" : "unavailable"
-      }`
+      `complete — ${clauses.length} clauses, risk=${
+        summaryData.overallRisk ?? "AMBER"
+      }, TEE=${receipt.tdxQuote !== "unavailable" ? "verified" : "unavailable"}`
     );
 
-    return NextResponse.json({
+    const analysis = {
       id: receipt.receiptId,
       fileName: file.name,
-      contractType: parsedMeta.contractType ?? "Unknown",
-      parties: parsedMeta.parties ?? [],
+      contractType,
+      parties: meta.parties ?? [],
+      governingLaw: meta.governingLaw ?? "Not specified",
+      effectiveDate: meta.effectiveDate ?? "Not specified",
       clauses,
       overallRisk: summaryData.overallRisk ?? "AMBER",
       summary: summaryData.summary ?? "",
@@ -312,7 +466,19 @@ Base the verdict on: GREEN = mostly LOW risk, AMBER = several MEDIUM risks, RED 
       topRecommendation: summaryData.topRecommendation ?? "",
       receipt,
       analyzedAt: receipt.completedAt,
-    });
+    };
+
+    // Persist to Supabase, scoped to the authenticated user.
+    try {
+      await saveAnalysis(session.user.sub, analysis);
+      log("analysis saved to Supabase");
+    } catch (e) {
+      // Don't fail the request if persistence fails — the client still gets
+      // the analysis, it just won't appear in the dashboard list.
+      log(`failed to save analysis: ${e instanceof Error ? e.message : e}`);
+    }
+
+    return NextResponse.json(analysis);
   } catch (err) {
     log(`pipeline FAILED — ${err instanceof Error ? err.message : err}`);
     return NextResponse.json(

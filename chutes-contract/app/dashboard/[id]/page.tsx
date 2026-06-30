@@ -23,6 +23,8 @@ interface ContractAnalysis {
   id: string;
   fileName: string;
   contractType: string;
+  governingLaw?: string;
+  effectiveDate?: string;
   parties: Array<{ name: string; role: string }>;
   clauses: AnalyzedClause[];
   overallRisk: OverallRisk;
@@ -106,16 +108,23 @@ export default function ContractDetailPage() {
   const [showReceipt, setShowReceipt] = useState(false);
 
   useEffect(() => {
-    const stored = localStorage.getItem(`contract_${id}`);
-    if (stored) {
+    let active = true;
+    (async () => {
       try {
-        setAnalysis(JSON.parse(stored));
+        const res = await fetch(`/api/contracts/${id}`);
+        if (!res.ok) {
+          if (active) setNotFoundState(true);
+          return;
+        }
+        const data = await res.json();
+        if (active) setAnalysis(data);
       } catch {
-        setNotFoundState(true);
+        if (active) setNotFoundState(true);
       }
-    } else {
-      setNotFoundState(true);
-    }
+    })();
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   if (notFoundState) {
@@ -123,8 +132,8 @@ export default function ContractDetailPage() {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#0f0f0e] text-center text-white">
         <p className="text-lg font-medium text-white/80">Analysis not found</p>
         <p className="max-w-md text-sm text-white/40">
-          This analysis may have been cleared from your browser storage. Upload
-          the contract again to regenerate it.
+          We couldn&apos;t find this analysis in your account. Upload the
+          contract again to regenerate it.
         </p>
         <Link
           href="/dashboard"
@@ -266,6 +275,14 @@ export default function ContractDetailPage() {
                   label="Parsed clauses"
                   value={`${clauses.length} discrete sections`}
                 />
+                <InfoBlock
+                  label="Governing law"
+                  value={analysis.governingLaw || "Not specified"}
+                />
+                <InfoBlock
+                  label="Effective date"
+                  value={analysis.effectiveDate || "Not specified"}
+                />
               </div>
               {analysis.parties?.length > 0 && (
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -354,7 +371,7 @@ export default function ContractDetailPage() {
             <PipelineDropdown
               number={5}
               title="Negotiation Advisor"
-              kicker="Generated specific counterparty-ready rewrite guidance"
+              kicker="Suggests how to negotiate with the other party"
             >
               <div className="grid gap-3">
                 {clauses.map((clause) => (
@@ -371,7 +388,7 @@ export default function ContractDetailPage() {
             <PipelineDropdown
               number={6}
               title="Summary Agent"
-              kicker="Compressed clause-level evidence into the final verdict"
+              kicker="Wraps everything into a concise summary"
             >
               <div className="rounded-lg border border-white/8 bg-black/20 p-5">
                 <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">

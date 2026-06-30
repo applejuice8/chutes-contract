@@ -37,8 +37,6 @@ The result: a contract review you can _hand to a counterparty or auditor_ and sa
 | **Privacy-sensitive teams (legal, healthcare, finance)** | Can't paste confidential drafts into hosted AI             | Hardware-isolated inference + a receipt that proves it          |
 | **Anyone with a lease or freelance contract**            | Legalese is opaque and one-sided terms hide in plain sight | Clause-by-clause flags and concrete negotiation language        |
 
-**Go-to-market:** start with the audience that feels the trust gap most acutely — independent contractors and early-stage founders reviewing inbound agreements — then expand into regulated teams where the attestation receipt becomes a compliance artifact (provable data handling for confidential documents). The receipt is the wedge: it's a feature no incumbent can copy without TEE infrastructure.
-
 ---
 
 ## How Chutes is the core of the product
@@ -64,19 +62,23 @@ User uploads contract
         ├─ SHA-256(file) ───────────────► contractHash        (tamper-evidence)
         ├─ generateNonce() ─────────────► 64 hex chars         (freshness)
         │
-        ├─ fetchTEEEvidence(nonce) ──────────────────────┐    (parallel)
-        │                                                │
-        ├─ Analyst pass  (parse + extract + risk +       │
-        │   plain-English + redline advice)  ── Chutes ──┤
-        ├─ Summary pass  (verdict + key risks)  ─ Chutes ┤
-        │            │                                   │
-        │            └────────────── await ──────────────┘
+        ├─ fetchTEEEvidence(nonce) ──────────────────────────────┐  (parallel)
+        │                                                        │
+        │  6-agent pipeline (each agent = its own Chutes call):  │
+        ├─ Phase 1 ‖ Document Parser  +  Clause Extractor ───────┤
+        ├─ Phase 2 ‖ Risk Scorer      +  Plain-English Translator┤
+        ├─ Phase 3 │ Negotiation Advisor (needs risk scores) ────┤
+        ├─ Phase 4 │ Summary Agent (verdict + key risks) ────────┤
+        │            │                                           │
+        │            └────────────────── await ──────────────────┘
         │                          │
         │                    buildReceipt()
         │                          │
         ▼                { clauses, summary, receipt }
-   localStorage  ──►  /dashboard/[id]  ──►  ReceiptPanel (3 verification tiers)
+   Supabase (Postgres)  ──►  GET/DELETE /api/contracts[/:id]  ──►  /dashboard/[id]  ──►  ReceiptPanel (3 verification tiers)
 ```
+
+Analyses are persisted server-side in Supabase Postgres, scoped to the authenticated Chutes user (`sub`). The dashboard sidebar, the contract list, and the detail page all read from the `/api/contracts` endpoints rather than browser storage, so history is durable and available across devices. Each contract card has a delete button that removes the analysis via `DELETE /api/contracts/:id` (also user-scoped).
 
 **The six analysis stages** (shown in the UI as a pipeline trace):
 
@@ -97,12 +99,17 @@ User uploads contract
 
 ## Performance & engineering notes
 
-TEE models run at roughly ~10 tokens/sec, and a naive six-call chain (each agent re-emitting the entire growing clause array) took **15+ minutes**. We restructured the pipeline into **two calls** — one combined analyst pass that emits every clause with all fields once, plus a small bounded summary call — cutting wall-clock time to **~5 minutes (~3× faster)** while preserving the six-stage UX. The clause text is generated once instead of three times.
+The analysis is a genuine **6-agent pipeline** — each stage is its own Chutes call with a focused system prompt, rather than one mega-prompt. To keep the slower TEE model (~10 tokens/sec) responsive, independent agents run **concurrently**: the Document Parser and Clause Extractor run in parallel (both read raw text), then the Risk Scorer and Plain-English Translator run in parallel over the extracted clauses. The Negotiation Advisor runs next (it needs risk scores), and the Summary Agent runs last.
+
+Two techniques keep the multi-agent design fast and reliable:
+
+- **Compact id-keyed merging.** The Clause Extractor produces the canonical clause list with stable ids. Downstream agents return only small `{ id, field }` arrays that are merged back by id, so clause text is generated once instead of being re-emitted by every stage. This avoids the latency blow-up of a naive chain and prevents clause text from drifting between agents.
+- **Per-agent fault isolation.** Every agent response is parsed through a `safeParse` helper with a fallback, so a single malformed JSON response degrades only that field instead of failing the whole analysis.
 
 Other reliability work:
 
 - **Per-call timeouts** (`AbortController`, configurable via `CHUTES_AGENT_TIMEOUT_MS`) so a cold enclave can't hang the request forever.
-- **Timestamped server-side stage logging** for full visibility into pipeline progress.
+- **Timestamped server-side stage logging** (`Stage N/6 ...`) for full visibility into pipeline progress.
 - **Graceful degradation:** if TEE evidence is unavailable (cold enclave), Levels 1 and 2 of the receipt still hold; only Level 3 shows "unavailable."
 - **Robust JSON parsing** with markdown-fence stripping, since LLMs occasionally wrap JSON in code blocks.
 
@@ -112,6 +119,7 @@ Other reliability work:
 
 - **Next.js 16** (App Router, React 19, TypeScript 5)
 - **Tailwind CSS v4**
+- **Supabase (Postgres)** via `pg` — durable, per-user analysis history
 - **Chutes** — TEE inference (`llm.chutes.ai`), attestation evidence (`api.chutes.ai`), and OAuth IDP
 - **Web Crypto API** for SHA-256 hashing and nonce generation
 - Public **TEE Attestation Explorer** (Phala / t16z) for one-click quote verification
@@ -150,6 +158,7 @@ cp env.local.example .env.local
 | `CHUTES_MODEL`               | TEE model for all stages. Default: `deepseek-ai/DeepSeek-V3.2-TEE`.                                    |
 | `CHUTES_CHUTE_ID`            | Chute UUID for the attestation `evidence` endpoint (the model name with slashes won't work as a path). |
 | `CHUTES_AGENT_TIMEOUT_MS`    | Optional per-call timeout (default 240000).                                                            |
+| `SUPABASE_URI`               | Supabase Postgres connection string (transaction pooler). Used to persist analyses per user.           |
 
 > Find a model's chute UUID by listing chutes from `https://api.chutes.ai/chutes/` and matching the model name. TEE-enabled models end in `-TEE`.
 
@@ -188,6 +197,7 @@ Two sample contracts are included under `chutes-contract/test-contracts/`:
 3. Review the clause-by-clause breakdown and overall verdict.
 4. Click **View Notarization Receipt** → confirm Levels 1 and 2 are green; Level 3 is green when the TEE enclave is warm.
 5. Click **Verify TDX Quote** to open the independent attestation report, or **Download JSON** for the full receipt.
+6. Back on the dashboard, hover a contract card and click the trash icon to delete an analysis you no longer need.
 
 ---
 
@@ -197,7 +207,9 @@ Two sample contracts are included under `chutes-contract/test-contracts/`:
 chutes-contract/
   app/
     api/auth/chutes/{login,callback,session,logout}/   # OAuth 2.0 + PKCE
-    api/contracts/analyze/route.ts                     # six-stage pipeline + receipt
+    api/contracts/analyze/route.ts                     # 6-agent pipeline + receipt + persist
+    api/contracts/route.ts                             # GET list (user-scoped)
+    api/contracts/[id]/route.ts                        # GET + DELETE single analysis (user-scoped)
     api/contracts/receipt/[id]/route.ts                # receipt store (in-memory)
     api/contracts/verify-quote/route.ts                # proxy to attestation explorer
     dashboard/{page,layout}.tsx, dashboard/[id]/page.tsx
@@ -206,6 +218,7 @@ chutes-contract/
     chutesAuth.ts        # OAuth config, PKCE helpers
     serverAuth.ts        # session cookie + access-token helpers
     teeAttestation.ts    # nonce, hashing, evidence fetch, receipt builder
+    db.ts                # Supabase/Postgres pool + analysis persistence
     contractData.ts      # types + mock fallback data
   middleware.ts          # guards /dashboard and /upload
   test-contracts/        # sample contracts for demo
@@ -218,19 +231,10 @@ chutes-contract/
 Honest about what's MVP-stage:
 
 - **Text extraction.** The pipeline reads uploaded files as UTF-8 text, so `.txt` works best today. Robust `.pdf`/`.docx` parsing (PDF text layers, DOCX XML) is the next step.
-- **Persistence.** Analyses are stored in the browser's `localStorage` and receipts in an in-memory map for the demo; production would move these to a database with per-user history.
+- **Persistence.** Analyses are persisted in **Supabase Postgres**, scoped per Chutes user, so history survives across sessions and devices. The `contracts` table is created automatically on first write. Receipts are also embedded in each stored analysis; the standalone in-memory receipt map remains only as a legacy stub.
 - **Latency.** Capped by TEE model throughput (~10 tok/s). Future work: streaming responses for perceived speed, a smaller TEE model for lighter stages, and caching.
 - **Verification.** Level 3 currently verifies via a public explorer running Intel DCAP. A fully self-hosted DCAP Quote Verification Library is a future hardening step. GPU (NVIDIA NRAS) verification is captured in the receipt and can be wired into the one-click flow next.
 - **AI output is assistance, not legal advice.** ChutesContract surfaces risks and drafting suggestions; it does not replace a qualified attorney.
-
----
-
-## Why this wins on the rubric
-
-- **Technical execution:** a complete, working end-to-end flow — OAuth, multi-stage inference, real hardware attestation, one-click independent verification, and a downloadable receipt — with timeouts, logging, and graceful degradation.
-- **Use of Chutes:** Chutes is foundational. TEE inference, nonce-bound TDX/GPU attestation, and the OAuth IDP are all platform-specific features that the product cannot exist without.
-- **Innovation:** reframes "AI contract review" as **proof-of-inference notarization** — a verifiable receipt, not just an answer. That's a genuinely new angle made possible only by confidential computing.
-- **Impact & relevance:** a clear productivity win for students, founders, and privacy-sensitive teams, with a defined target user, a real pain point, and a go-to-market wedge (the attestation receipt) that incumbents can't replicate.
 
 ---
 

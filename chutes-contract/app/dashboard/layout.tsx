@@ -38,21 +38,24 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [contracts, setContracts] = useState<SidebarContract[]>([]);
 
   useEffect(() => {
-    const stored: SidebarContract[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith('contract_')) {
-        try {
-          const c = JSON.parse(localStorage.getItem(key)!);
-          stored.push(c);
-        } catch {}
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/contracts');
+        if (!res.ok) {
+          if (active) setContracts([]);
+          return;
+        }
+        const data = await res.json();
+        // API already returns analyses newest-first, scoped to the user.
+        if (active) setContracts(data.contracts ?? []);
+      } catch {
+        if (active) setContracts([]);
       }
-    }
-    stored.sort(
-      (a, b) =>
-        new Date(b.analyzedAt).getTime() - new Date(a.analyzedAt).getTime(),
-    );
-    setContracts(stored);
+    })();
+    return () => {
+      active = false;
+    };
   }, [pathname]);
 
   return (

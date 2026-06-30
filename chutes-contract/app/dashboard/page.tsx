@@ -64,6 +64,7 @@ export default function Dashboard() {
   const router = useRouter();
   const { isLoading, user } = useChutesSession();
   const [contracts, setContracts] = useState<ContractSummary[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -73,22 +74,50 @@ export default function Dashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const stored: ContractSummary[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith("contract_")) {
-        try {
-          const c = JSON.parse(localStorage.getItem(key)!);
-          stored.push(c);
-        } catch {}
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/contracts");
+        if (!res.ok) {
+          if (active) setContracts([]);
+          return;
+        }
+        const data = await res.json();
+        if (active) setContracts(data.contracts ?? []);
+      } catch {
+        if (active) setContracts([]);
       }
-    }
-    stored.sort(
-      (a, b) =>
-        new Date(b.analyzedAt).getTime() - new Date(a.analyzedAt).getTime(),
-    );
-    setContracts(stored);
+    })();
+    return () => {
+      active = false;
+    };
   }, []);
+
+  async function handleDelete(
+    e: React.MouseEvent,
+    id: string,
+  ) {
+    // The card is a Link — stop the click from navigating to the detail page.
+    e.preventDefault();
+    e.stopPropagation();
+    if (
+      !window.confirm(
+        "Delete this analysis? This permanently removes it and cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/contracts/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      setContracts((prev) => prev.filter((c) => c.id !== id));
+    } catch {
+      alert("Could not delete the contract. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   const openModal = () => setIsModalOpen(true);
   const closeModal = () => {
@@ -144,7 +173,9 @@ export default function Dashboard() {
 
     const stages = [
       "Reading & hashing document...",
-      "Analyzing clauses (risk, plain-English, redlines)...",
+      "Parsing document & extracting clauses...",
+      "Scoring risk & translating to plain English...",
+      "Drafting negotiation redlines...",
       "Summarizing & scoring overall risk...",
       "Generating TEE attestation receipt...",
     ];
@@ -185,13 +216,8 @@ export default function Dashboard() {
 
       const analysis = await res.json();
 
-      // Store in localStorage for the detail page to read
-      localStorage.setItem(
-        `contract_${analysis.id}`,
-        JSON.stringify(analysis),
-      );
-
-      // Navigate to contract detail page
+      // Analysis is persisted server-side (Supabase) by the analyze route.
+      // Navigate to contract detail page, which loads it from the API.
       router.push(`/dashboard/${analysis.id}`);
     } catch (err) {
       cleanup();
@@ -288,11 +314,40 @@ export default function Dashboard() {
                           {contract.fileName}
                         </h2>
                       </div>
-                      <span
-                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${risk.badge}`}
-                      >
-                        {contract.overallRisk}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${risk.badge}`}
+                        >
+                          {contract.overallRisk}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDelete(e, contract.id)}
+                          disabled={deletingId === contract.id}
+                          aria-label={`Delete ${contract.fileName}`}
+                          title="Delete analysis"
+                          className="rounded-lg border border-white/10 p-1.5 text-white/35 opacity-0 transition hover:border-red-400/40 hover:bg-red-400/10 hover:text-red-300 focus:opacity-100 disabled:cursor-not-allowed disabled:opacity-50 group-hover:opacity-100"
+                        >
+                          {deletingId === contract.id ? (
+                            <span className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-red-300/30 border-t-red-300" />
+                          ) : (
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 5v6m4-6v6"
+                              />
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     <p className="line-clamp-3 text-sm leading-6 text-white/48">
