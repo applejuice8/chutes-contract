@@ -118,7 +118,7 @@ export function ReceiptPanel({ receipt }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `proofsign-receipt-${receipt.receiptId.slice(0, 8)}.json`;
+    a.download = `chutescontract-receipt-${receipt.receiptId.slice(0, 8)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };

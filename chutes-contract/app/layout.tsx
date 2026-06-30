@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ProofSign",
+  title: "ChutesContract",
   description:
     "Trustless AI contract analysis with cryptographic TEE notarization receipts",
 };

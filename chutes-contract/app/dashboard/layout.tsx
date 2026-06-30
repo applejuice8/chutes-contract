@@ -112,7 +112,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               </svg>
             </div>
             <span className="text-white/90 font-semibold text-sm tracking-tight">
-              ProofSign
+              ChutesContract
             </span>
           </div>
 
