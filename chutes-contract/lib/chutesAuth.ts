@@ -1,12 +1,20 @@
 // Core OAuth/PKCE utilities for Sign in with Chutes
 const CHUTES_IDP_BASE = "https://api.chutes.ai/idp";
 
+// The Chutes web auth page exposes the full set of login methods
+// (Google, GitHub, etc.). The IDP /authorize page only shows the
+// Fingerprint/Hotkey tabs directly, hiding social logins behind a
+// "More login options" link that points here. Routing users through
+// this page first surfaces "Continue with Google" up front.
+const CHUTES_WEB_AUTH_URL = "https://chutes.ai/auth";
+
 export const CHUTES_AUTH_CONFIG = {
   clientId: process.env.CHUTES_OAUTH_CLIENT_ID!,
   clientSecret: process.env.CHUTES_OAUTH_CLIENT_SECRET!,
   redirectUri: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/chutes/callback`,
   scopes: ["openid", "profile", "chutes:invoke"],
   authorizationEndpoint: `${CHUTES_IDP_BASE}/authorize`,
+  webAuthUrl: CHUTES_WEB_AUTH_URL,
   tokenEndpoint: `${CHUTES_IDP_BASE}/token`,
   userInfoEndpoint: `${CHUTES_IDP_BASE}/userinfo`,
 };

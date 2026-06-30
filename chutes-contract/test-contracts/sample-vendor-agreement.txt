@@ -1,0 +1,47 @@
+MASTER SERVICES AGREEMENT
+
+This Master Services Agreement ("Agreement") is entered into as of January 15, 2026 (the "Effective Date") by and between Northwind Analytics, Inc., a Delaware corporation with offices at 400 Market Street, Suite 1200, San Francisco, CA ("Provider"), and Cascade Robotics, LLC, a California limited liability company with offices at 88 Industrial Way, Oakland, CA ("Client"). Provider and Client are each a "Party" and together the "Parties."
+
+1. SERVICES
+Provider shall provide Client with cloud-based data analytics and reporting services (the "Services") as described in one or more Statements of Work executed by the Parties. Each Statement of Work shall reference this Agreement and shall be governed by its terms.
+
+2. PAYMENT TERMS
+Client shall pay all undisputed invoices within thirty (30) calendar days of receipt. Late payments shall accrue interest at a rate of one and one-half percent (1.5%) per month on the outstanding balance. Provider may increase recurring fees once per twelve (12) month period upon sixty (60) days' prior written notice, with any increase capped at the lesser of five percent (5%) or the change in the Consumer Price Index.
+
+3. TERM AND TERMINATION
+This Agreement shall commence on the Effective Date and continue for an initial term of twelve (12) months, renewing automatically for successive twelve (12) month periods unless either Party provides written notice of non-renewal at least thirty (30) days before the end of the then-current term. Either Party may terminate this Agreement for convenience upon thirty (30) days' prior written notice. Upon termination, Client shall pay for all Services rendered through the effective date of termination.
+
+4. CONFIDENTIALITY
+Each Party agrees to hold the other Party's Confidential Information in strict confidence and to use it solely for the purpose of performing under this Agreement. This obligation shall survive termination of this Agreement for a period of three (3) years.
+
+5. INTELLECTUAL PROPERTY
+All intellectual property created by Provider in the course of performing the Services shall be owned by Provider until Client has paid all amounts due for such deliverables, at which point ownership of the deliverables shall transfer to Client. Provider retains the right to use general knowledge, skills, and techniques acquired during the engagement. Notwithstanding the foregoing, Provider shall retain a perpetual, irrevocable, royalty-free license to use any anonymized and aggregated data derived from Client's use of the Services to improve Provider's products.
+
+6. DATA RIGHTS
+Any data, inputs, prompts, outputs, or derivative works generated through Client's use of the Services shall be jointly owned by Provider and Client. Provider retains an irrevocable, worldwide, royalty-free license to use, reproduce, modify, and distribute such materials for any purpose, including training and improving its own models and services. Provider shall have no obligation to return or migrate Client data upon termination.
+
+7. LIMITATION OF LIABILITY
+In no event shall Provider be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of data, loss of revenue, or business interruption, even if advised of the possibility of such damages. Provider's total cumulative liability under this Agreement shall not exceed the total fees paid by Client during the three (3) months preceding the claim. Client assumes all risk associated with its use of the Services.
+
+8. INDEMNIFICATION
+Client shall indemnify, defend, and hold harmless Provider and its officers, directors, employees, and affiliates from and against any and all claims, damages, losses, liabilities, and expenses (including reasonable attorneys' fees) arising out of or related to Client's use of the Services or Client's breach of this Agreement.
+
+9. NON-SOLICITATION
+During the term of this Agreement and for a period of twenty-four (24) months following termination, Client shall not, directly or indirectly, solicit for employment or hire any employee or contractor of Provider with whom Client had contact in connection with the Services.
+
+10. WARRANTIES AND DISCLAIMER
+Provider warrants that the Services will be performed in a professional and workmanlike manner. EXCEPT AS EXPRESSLY SET FORTH HEREIN, THE SERVICES ARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING ANY IMPLIED WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+
+11. GOVERNING LAW
+This Agreement shall be governed by and construed in accordance with the laws of the State of California, without regard to its conflict of laws principles. Any dispute arising under this Agreement shall be resolved exclusively in the state or federal courts located in San Francisco County, California.
+
+12. ENTIRE AGREEMENT
+This Agreement, together with any Statements of Work, constitutes the entire agreement between the Parties and supersedes all prior or contemporaneous agreements, whether written or oral, relating to its subject matter. Any amendment must be in writing and signed by both Parties.
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
+
+NORTHWIND ANALYTICS, INC.                 CASCADE ROBOTICS, LLC
+
+By: _______________________               By: _______________________
+Name: Dana Whitfield                       Name: Marcus Lee
+Title: Chief Executive Officer             Title: Chief Operating Officer

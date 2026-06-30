@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ChutesContract",
-  description: "AI-Powered On Chain Contract Analysis Tool",
+  title: "ProofSign",
+  description:
+    "Trustless AI contract analysis with cryptographic TEE notarization receipts",
 };
 
 export default function RootLayout({

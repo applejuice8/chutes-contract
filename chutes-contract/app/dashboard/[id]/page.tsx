@@ -1,13 +1,37 @@
+"use client";
+
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import type { ReactNode } from "react";
-import {
-  Clause,
-  getAllContracts,
-  getContractById,
-  OverallRisk,
-  RiskLevel,
-} from "@/lib/contractData";
+import { useParams } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
+import { OverallRisk, RiskLevel } from "@/lib/contractData";
+import { NotarizationReceipt } from "@/lib/teeAttestation";
+import { ReceiptPanel } from "@/components/ReceiptPanel";
+
+interface AnalyzedClause {
+  id: string;
+  category: string;
+  title?: string;
+  text: string;
+  riskLevel: RiskLevel;
+  riskReason: string;
+  plainEnglish: string;
+  suggestedRewrite: string;
+  negotiationPriority?: string;
+}
+
+interface ContractAnalysis {
+  id: string;
+  fileName: string;
+  contractType: string;
+  parties: Array<{ name: string; role: string }>;
+  clauses: AnalyzedClause[];
+  overallRisk: OverallRisk;
+  summary: string;
+  keyRisks: string[];
+  topRecommendation: string;
+  receipt: NotarizationReceipt;
+  analyzedAt: string;
+}
 
 const riskStyles: Record<
   RiskLevel,
@@ -57,28 +81,76 @@ const overallStyles: Record<
   },
 };
 
-type DetailPageProps = {
-  params: Promise<{ id: string }>;
-};
-
-export function generateStaticParams() {
-  return getAllContracts().map((contract) => ({ id: contract.id }));
+function safeRisk(level: string | undefined): RiskLevel {
+  return level === "LOW" || level === "MEDIUM" || level === "HIGH"
+    ? level
+    : "MEDIUM";
 }
 
-export default async function ContractDetailPage({ params }: DetailPageProps) {
-  const { id } = await params;
-  const contract = getContractById(id);
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
 
-  if (!contract) {
-    notFound();
+export default function ContractDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const [analysis, setAnalysis] = useState<ContractAnalysis | null>(null);
+  const [notFoundState, setNotFoundState] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(`contract_${id}`);
+    if (stored) {
+      try {
+        setAnalysis(JSON.parse(stored));
+      } catch {
+        setNotFoundState(true);
+      }
+    } else {
+      setNotFoundState(true);
+    }
+  }, [id]);
+
+  if (notFoundState) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#0f0f0e] text-center text-white">
+        <p className="text-lg font-medium text-white/80">Analysis not found</p>
+        <p className="max-w-md text-sm text-white/40">
+          This analysis may have been cleared from your browser storage. Upload
+          the contract again to regenerate it.
+        </p>
+        <Link
+          href="/dashboard"
+          className="rounded-lg bg-[#c8f47b] px-4 py-2 text-sm font-semibold text-[#0f0f0e] transition hover:bg-[#d4f78e]"
+        >
+          Back to contracts
+        </Link>
+      </main>
+    );
   }
 
-  const overall = overallStyles[contract.overallRisk];
-  const highRiskCount = contract.clauses.filter(
-    (clause) => clause.riskLevel === "HIGH",
+  if (!analysis) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0f0f0e]">
+        <p className="text-white/50">Loading analysis...</p>
+      </div>
+    );
+  }
+
+  const overall = overallStyles[analysis.overallRisk] ?? overallStyles.AMBER;
+  const clauses = analysis.clauses ?? [];
+  const highRiskCount = clauses.filter(
+    (clause) => safeRisk(clause.riskLevel) === "HIGH",
   ).length;
-  const mediumRiskCount = contract.clauses.filter(
-    (clause) => clause.riskLevel === "MEDIUM",
+  const mediumRiskCount = clauses.filter(
+    (clause) => safeRisk(clause.riskLevel) === "MEDIUM",
   ).length;
 
   return (
@@ -102,18 +174,25 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
             <div>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-white/55">
-                  {contract.contractType}
+                  {analysis.contractType}
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-white/55">
-                  {contract.date}
+                  {formatDate(analysis.analyzedAt)}
                 </span>
               </div>
               <h1 className="break-words text-3xl font-semibold tracking-tight text-white md:text-4xl">
-                {contract.name}
+                {analysis.fileName}
               </h1>
               <p className="mt-4 max-w-3xl text-sm leading-6 text-white/52">
-                {contract.summary}
+                {analysis.summary}
               </p>
+
+              <button
+                onClick={() => setShowReceipt((prev) => !prev)}
+                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+              >
+                🔐 {showReceipt ? "Hide" : "View"} Notarization Receipt
+              </button>
             </div>
 
             <aside
@@ -132,69 +211,92 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
                   </p>
                 </div>
                 <div className="text-right text-sm text-white/55">
-                  <p>{contract.clauses.length} clauses</p>
+                  <p>{clauses.length} clauses</p>
                   <p>{highRiskCount} high risk</p>
                   <p>{mediumRiskCount} medium risk</p>
                 </div>
               </div>
             </aside>
           </div>
+
+          {showReceipt && analysis.receipt && (
+            <div className="mt-2">
+              <ReceiptPanel receipt={analysis.receipt} />
+            </div>
+          )}
         </section>
 
         <section className="grid gap-5 md:grid-cols-3">
-          <Metric label="Document Type" value={contract.contractType} />
+          <Metric label="Document Type" value={analysis.contractType} />
           <Metric label="Agents Complete" value="6 / 6" />
-          <Metric label="Clauses Flagged" value={`${highRiskCount + mediumRiskCount}`} />
+          <Metric
+            label="Clauses Flagged"
+            value={`${highRiskCount + mediumRiskCount}`}
+          />
         </section>
 
         <section className="mx-auto flex w-full max-w-4xl flex-col gap-4">
           <div className="text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#c8f47b]/75">
-              On-chain pipeline
+              TEE inference pipeline
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
               Agent analysis trace
             </h2>
             <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-white/45">
-              Expand each step to see what Chutes.ai extracted, scored,
-              translated, and recommended for this contract.
+              Expand each step to see what the TEE-isolated model extracted,
+              scored, translated, and recommended for this contract.
             </p>
           </div>
 
           <div className="flex flex-col gap-3">
             <PipelineDropdown
               number={1}
-              title="Document Parser On-chain"
+              title="Document Parser"
               kicker="Extracted source material and classified the document"
               defaultOpen
             >
               <div className="grid gap-4 md:grid-cols-3">
-                <InfoBlock label="Detected type" value={contract.contractType} />
-                <InfoBlock label="Source file" value={contract.name} />
+                <InfoBlock
+                  label="Detected type"
+                  value={analysis.contractType}
+                />
+                <InfoBlock label="Source file" value={analysis.fileName} />
                 <InfoBlock
                   label="Parsed clauses"
-                  value={`${contract.clauses.length} discrete sections`}
+                  value={`${clauses.length} discrete sections`}
                 />
               </div>
+              {analysis.parties?.length > 0 && (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {analysis.parties.map((party, idx) => (
+                    <InfoBlock
+                      key={`${party.name}-${idx}`}
+                      label={party.role || "Party"}
+                      value={party.name}
+                    />
+                  ))}
+                </div>
+              )}
               <div className="mt-4 rounded-lg border border-white/8 bg-black/20 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-white/30">
                   Parser notes
                 </p>
                 <p className="mt-2 text-sm leading-6 text-white/55">
-                  Chutes.ai identified the file as a {contract.contractType}{" "}
-                  contract, normalized the source text, and prepared the
-                  clauses for downstream risk analysis.
+                  The TEE model identified the file as a {analysis.contractType}{" "}
+                  contract, normalized the source text, and prepared the clauses
+                  for downstream risk analysis.
                 </p>
               </div>
             </PipelineDropdown>
 
             <PipelineDropdown
               number={2}
-              title="Clause Extractor On-chain"
+              title="Clause Extractor"
               kicker="Segmented the contract into reviewable clause units"
             >
               <div className="grid gap-3">
-                {contract.clauses.map((clause) => (
+                {clauses.map((clause) => (
                   <ClauseText key={clause.id} clause={clause} />
                 ))}
               </div>
@@ -202,12 +304,12 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
 
             <PipelineDropdown
               number={3}
-              title="Risk Scorer On-chain"
+              title="Risk Scorer"
               kicker="Rated each clause and explained the legal concern"
             >
               <div className="grid gap-3">
-                {contract.clauses.map((clause) => {
-                  const risk = riskStyles[clause.riskLevel];
+                {clauses.map((clause) => {
+                  const risk = riskStyles[safeRisk(clause.riskLevel)];
                   return (
                     <div
                       key={clause.id}
@@ -234,16 +336,16 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
 
             <PipelineDropdown
               number={4}
-              title="Plain-English Translator On-chain"
+              title="Plain-English Translator"
               kicker="Converted legal wording into direct user impact"
             >
               <div className="grid gap-3">
-                {contract.clauses.map((clause) => (
+                {clauses.map((clause) => (
                   <InsightRow
                     key={clause.id}
                     title={clause.category}
                     body={clause.plainEnglish}
-                    tone={riskStyles[clause.riskLevel].text}
+                    tone={riskStyles[safeRisk(clause.riskLevel)].text}
                   />
                 ))}
               </div>
@@ -251,11 +353,11 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
 
             <PipelineDropdown
               number={5}
-              title="Negotiation Advisor On-chain"
+              title="Negotiation Advisor"
               kicker="Generated specific counterparty-ready rewrite guidance"
             >
               <div className="grid gap-3">
-                {contract.clauses.map((clause) => (
+                {clauses.map((clause) => (
                   <InsightRow
                     key={clause.id}
                     title={clause.category}
@@ -268,7 +370,7 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
 
             <PipelineDropdown
               number={6}
-              title="Summary Agent On-chain"
+              title="Summary Agent"
               kicker="Compressed clause-level evidence into the final verdict"
             >
               <div className="rounded-lg border border-white/8 bg-black/20 p-5">
@@ -278,15 +380,39 @@ export default async function ContractDetailPage({ params }: DetailPageProps) {
                       Final verdict
                     </p>
                     <p className="mt-3 text-base leading-7 text-white/72">
-                      {contract.summary}
+                      {analysis.summary}
                     </p>
                   </div>
                   <span
                     className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${overall.bg} ${overall.text} ring-1 ${overall.ring}`}
                   >
-                    {contract.overallRisk}
+                    {analysis.overallRisk}
                   </span>
                 </div>
+
+                {analysis.keyRisks?.length > 0 && (
+                  <div className="mt-5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/30">
+                      Key risks
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6 text-white/60">
+                      {analysis.keyRisks.map((r, idx) => (
+                        <li key={idx}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {analysis.topRecommendation && (
+                  <div className="mt-5 rounded-lg border border-[#c8f47b]/20 bg-[#c8f47b]/5 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-[#c8f47b]/70">
+                      Top recommendation
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-white/70">
+                      {analysis.topRecommendation}
+                    </p>
+                  </div>
+                )}
               </div>
             </PipelineDropdown>
           </div>
@@ -381,19 +507,19 @@ function InfoBlock({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ClauseText({ clause }: { clause: Clause }) {
+function ClauseText({ clause }: { clause: AnalyzedClause }) {
   return (
     <div className="rounded-lg border border-white/8 bg-black/20 p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-white/85">
-          {clause.category}
+          {clause.title || clause.category}
         </h3>
         <span
           className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-            riskStyles[clause.riskLevel].pill
+            riskStyles[safeRisk(clause.riskLevel)].pill
           }`}
         >
-          {clause.riskLevel}
+          {safeRisk(clause.riskLevel)}
         </span>
       </div>
       <p className="text-sm leading-6 text-white/50">{clause.text}</p>

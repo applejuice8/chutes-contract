@@ -1,9 +1,31 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  DragEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
-import { getAllContracts, OverallRisk } from "@/lib/contractData";
+import { useRouter } from "next/navigation";
+import { OverallRisk } from "@/lib/contractData";
 import { useChutesSession } from "@/hooks/useChutesSession";
+
+interface StoredClause {
+  riskLevel?: "LOW" | "MEDIUM" | "HIGH";
+}
+
+interface ContractSummary {
+  id: string;
+  fileName: string;
+  contractType: string;
+  overallRisk: OverallRisk;
+  summary: string;
+  analyzedAt: string;
+  clauses: StoredClause[];
+  receipt?: { receiptId: string };
+}
 
 const riskStyles: Record<
   OverallRisk,
@@ -26,16 +48,51 @@ const riskStyles: Record<
   },
 };
 
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export default function Dashboard() {
-  const contracts = getAllContracts();
+  const router = useRouter();
   const { isLoading, user } = useChutesSession();
+  const [contracts, setContracts] = useState<ContractSummary[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStage, setUploadStage] = useState<string>("");
+  const [elapsed, setElapsed] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const stored: ContractSummary[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith("contract_")) {
+        try {
+          const c = JSON.parse(localStorage.getItem(key)!);
+          stored.push(c);
+        } catch {}
+      }
+    }
+    stored.sort(
+      (a, b) =>
+        new Date(b.analyzedAt).getTime() - new Date(a.analyzedAt).getTime(),
+    );
+    setContracts(stored);
+  }, []);
 
   const openModal = () => setIsModalOpen(true);
   const closeModal = () => {
+    if (isUploading) return;
     setIsModalOpen(false);
     setIsDragging(false);
     setSelectedFile(null);
@@ -81,11 +138,74 @@ export default function Dashboard() {
     }
   };
 
-  const handleUploadSubmit = () => {
-    if (!selectedFile) return;
-    console.log("Uploading file to Chutes backend:", selectedFile.name);
-    closeModal();
-  };
+  async function handleUploadSubmit(file: File) {
+    setIsUploading(true);
+    setElapsed(0);
+
+    const stages = [
+      "Reading & hashing document...",
+      "Analyzing clauses (risk, plain-English, redlines)...",
+      "Summarizing & scoring overall risk...",
+      "Generating TEE attestation receipt...",
+    ];
+
+    // Cycle through stage labels while waiting
+    let stageIndex = 0;
+    setUploadStage(stages[0]);
+    const stageInterval = setInterval(() => {
+      stageIndex = Math.min(stageIndex + 1, stages.length - 1);
+      setUploadStage(stages[stageIndex]);
+    }, 30000);
+
+    // Live elapsed counter so the UI never looks frozen during slow TEE calls.
+    const elapsedInterval = setInterval(() => {
+      setElapsed((s) => s + 1);
+    }, 1000);
+
+    const cleanup = () => {
+      clearInterval(stageInterval);
+      clearInterval(elapsedInterval);
+    };
+
+    try {
+      const formData = new FormData();
+      formData.append("contract", file);
+
+      const res = await fetch("/api/contracts/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      cleanup();
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Analysis failed");
+      }
+
+      const analysis = await res.json();
+
+      // Store in localStorage for the detail page to read
+      localStorage.setItem(
+        `contract_${analysis.id}`,
+        JSON.stringify(analysis),
+      );
+
+      // Navigate to contract detail page
+      router.push(`/dashboard/${analysis.id}`);
+    } catch (err) {
+      cleanup();
+      console.error("Upload failed:", err);
+      alert(
+        `Analysis failed: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`,
+      );
+    } finally {
+      setIsUploading(false);
+      setUploadStage("");
+    }
+  }
 
   if (isLoading) {
     return (
@@ -112,8 +232,9 @@ export default function Dashboard() {
               Contract analyses
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-white/45">
-              Open a contract to inspect the six on-chain agent stages, clause
-              risks, plain-English translations, and negotiation rewrites.
+              Open a contract to inspect the six TEE agent stages, clause risks,
+              plain-English translations, negotiation rewrites, and the
+              cryptographic notarization receipt.
             </p>
           </div>
 
@@ -126,79 +247,100 @@ export default function Dashboard() {
           </button>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {contracts.map((contract) => {
-            const risk = riskStyles[contract.overallRisk];
-            const highRiskCount = contract.clauses.filter(
-              (clause) => clause.riskLevel === "HIGH",
-            ).length;
+        {contracts.length === 0 ? (
+          <section className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-white/10 bg-white/[0.02] py-20 text-center">
+            <p className="text-base font-medium text-white/70">
+              No contracts analyzed yet
+            </p>
+            <p className="max-w-md text-sm text-white/40">
+              Upload a contract to run the six-agent TEE pipeline and generate a
+              tamper-evident notarization receipt.
+            </p>
+            <button
+              onClick={openModal}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#c8f47b] px-4 text-sm font-semibold text-[#0f0f0e] transition hover:bg-[#d4f78e]"
+            >
+              <span className="text-lg leading-none">+</span>
+              Analyze your first contract
+            </button>
+          </section>
+        ) : (
+          <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {contracts.map((contract) => {
+              const risk = riskStyles[contract.overallRisk] ?? riskStyles.AMBER;
+              const highRiskCount = (contract.clauses ?? []).filter(
+                (clause) => clause.riskLevel === "HIGH",
+              ).length;
 
-            return (
-              <Link
-                key={contract.id}
-                href={`/dashboard/${contract.id}`}
-                className="group flex min-h-[220px] flex-col justify-between rounded-lg border border-white/8 bg-white/[0.025] p-5 transition hover:-translate-y-0.5 hover:border-[#c8f47b]/30 hover:bg-white/[0.045]"
-              >
-                <div>
-                  <div className="mb-5 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs text-white/35">{contract.date}</p>
-                      <h2 className="mt-2 break-words text-base font-semibold leading-6 text-white/90 group-hover:text-white">
-                        {contract.name}
-                      </h2>
+              return (
+                <Link
+                  key={contract.id}
+                  href={`/dashboard/${contract.id}`}
+                  className="group flex min-h-[220px] flex-col justify-between rounded-lg border border-white/8 bg-white/[0.025] p-5 transition hover:-translate-y-0.5 hover:border-[#c8f47b]/30 hover:bg-white/[0.045]"
+                >
+                  <div>
+                    <div className="mb-5 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-white/35">
+                          {formatDate(contract.analyzedAt)}
+                        </p>
+                        <h2 className="mt-2 break-words text-base font-semibold leading-6 text-white/90 group-hover:text-white">
+                          {contract.fileName}
+                        </h2>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${risk.badge}`}
+                      >
+                        {contract.overallRisk}
+                      </span>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${risk.badge}`}
-                    >
-                      {contract.overallRisk}
+
+                    <p className="line-clamp-3 text-sm leading-6 text-white/48">
+                      {contract.summary}
+                    </p>
+                  </div>
+
+                  <div className="mt-6 grid grid-cols-3 gap-3 border-t border-white/5 pt-4">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-white/30">
+                        Type
+                      </p>
+                      <p className="mt-1 text-sm text-white/75">
+                        {contract.contractType}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-white/30">
+                        Clauses
+                      </p>
+                      <p className="mt-1 text-sm text-white/75">
+                        {(contract.clauses ?? []).length}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-white/30">
+                        Flags
+                      </p>
+                      <p className="mt-1 text-sm text-white/75">
+                        {highRiskCount} high
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex items-center justify-between text-xs text-white/35">
+                    <span className="inline-flex items-center gap-2">
+                      <span className={`h-2 w-2 rounded-full ${risk.dot}`} />
+                      {risk.label}
+                    </span>
+                    <span className="text-[#c8f47b]/75 transition group-hover:translate-x-0.5">
+                      View analysis
                     </span>
                   </div>
-
-                  <p className="line-clamp-3 text-sm leading-6 text-white/48">
-                    {contract.summary}
-                  </p>
-                </div>
-
-                <div className="mt-6 grid grid-cols-3 gap-3 border-t border-white/5 pt-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wide text-white/30">
-                      Type
-                    </p>
-                    <p className="mt-1 text-sm text-white/75">
-                      {contract.contractType}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wide text-white/30">
-                      Clauses
-                    </p>
-                    <p className="mt-1 text-sm text-white/75">
-                      {contract.clauses.length}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-wide text-white/30">
-                      Flags
-                    </p>
-                    <p className="mt-1 text-sm text-white/75">
-                      {highRiskCount} high
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 flex items-center justify-between text-xs text-white/35">
-                  <span className="inline-flex items-center gap-2">
-                    <span className={`h-2 w-2 rounded-full ${risk.dot}`} />
-                    {risk.label}
-                  </span>
-                  <span className="text-[#c8f47b]/75 transition group-hover:translate-x-0.5">
-                    View analysis
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </section>
+                </Link>
+              );
+            })}
+          </section>
+        )}
       </div>
 
       {isModalOpen && (
@@ -210,7 +352,8 @@ export default function Dashboard() {
               </h2>
               <button
                 onClick={closeModal}
-                className="rounded-lg p-1 text-white/40 transition hover:bg-white/5 hover:text-white/70"
+                disabled={isUploading}
+                className="rounded-lg p-1 text-white/40 transition hover:bg-white/5 hover:text-white/70 disabled:opacity-30"
                 aria-label="Close upload modal"
               >
                 <svg
@@ -230,84 +373,97 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              onChange={handleFileChange}
-              accept=".txt,.pdf,.docx,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="hidden"
-            />
-
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={handleDragOver}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={handleDrop}
-              className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center transition ${
-                isDragging
-                  ? "border-[#c8f47b] bg-[#c8f47b]/5 text-[#c8f47b]"
-                  : "border-white/10 bg-white/[0.015] hover:border-white/20 hover:bg-white/[0.035]"
-              }`}
-            >
-              <div
-                className={`mb-3 flex h-10 w-10 items-center justify-center rounded-lg ${
-                  isDragging
-                    ? "bg-[#c8f47b] text-[#0f0f0e]"
-                    : "bg-white/5 text-white/60"
-                }`}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 16V8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1"
-                  />
-                </svg>
+            {isUploading ? (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#c8f47b]" />
+                <p className="text-sm text-white/70">{uploadStage}</p>
+                <p className="text-xs text-white/40">
+                  Elapsed {elapsed}s · TEE inference is slow, this can take a few
+                  minutes
+                </p>
               </div>
+            ) : (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={handleFileChange}
+                  accept=".txt,.pdf,.docx,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                />
 
-              {selectedFile ? (
-                <div className="w-full px-2">
-                  <p className="truncate text-sm font-medium text-white">
-                    {selectedFile.name}
-                  </p>
-                  <p className="mt-1 text-xs text-white/40">
-                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={handleDragOver}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleDrop}
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center transition ${
+                    isDragging
+                      ? "border-[#c8f47b] bg-[#c8f47b]/5 text-[#c8f47b]"
+                      : "border-white/10 bg-white/[0.015] hover:border-white/20 hover:bg-white/[0.035]"
+                  }`}
+                >
+                  <div
+                    className={`mb-3 flex h-10 w-10 items-center justify-center rounded-lg ${
+                      isDragging
+                        ? "bg-[#c8f47b] text-[#0f0f0e]"
+                        : "bg-white/5 text-white/60"
+                    }`}
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 16V8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1"
+                      />
+                    </svg>
+                  </div>
+
+                  {selectedFile ? (
+                    <div className="w-full px-2">
+                      <p className="truncate text-sm font-medium text-white">
+                        {selectedFile.name}
+                      </p>
+                      <p className="mt-1 text-xs text-white/40">
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-white/80">
+                        Click to upload or drag and drop
+                      </p>
+                      <p className="mt-1 text-xs text-white/40">
+                        Supports TXT, PDF, or DOCX
+                      </p>
+                    </>
+                  )}
                 </div>
-              ) : (
-                <>
-                  <p className="text-sm font-medium text-white/80">
-                    Click to upload or drag and drop
-                  </p>
-                  <p className="mt-1 text-xs text-white/40">
-                    Supports TXT, PDF, or DOCX
-                  </p>
-                </>
-              )}
-            </div>
 
-            <div className="mt-6 flex items-center gap-3">
-              <button
-                onClick={closeModal}
-                className="h-10 flex-1 rounded-lg border border-white/10 text-sm font-medium text-white/60 transition hover:bg-white/5 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={!selectedFile}
-                onClick={handleUploadSubmit}
-                className="h-10 flex-1 rounded-lg bg-[#c8f47b] text-sm font-semibold text-[#0f0f0e] transition hover:bg-[#d4f78e] disabled:opacity-40 disabled:hover:bg-[#c8f47b]"
-              >
-                Analyze Contract
-              </button>
-            </div>
+                <div className="mt-6 flex items-center gap-3">
+                  <button
+                    onClick={closeModal}
+                    className="h-10 flex-1 rounded-lg border border-white/10 text-sm font-medium text-white/60 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={!selectedFile}
+                    onClick={() => selectedFile && handleUploadSubmit(selectedFile)}
+                    className="h-10 flex-1 rounded-lg bg-[#c8f47b] text-sm font-semibold text-[#0f0f0e] transition hover:bg-[#d4f78e] disabled:opacity-40 disabled:hover:bg-[#c8f47b]"
+                  >
+                    Analyze Contract
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -1,0 +1,41 @@
+MUTUAL NON-DISCLOSURE AGREEMENT
+
+This Mutual Non-Disclosure Agreement ("Agreement") is made as of March 3, 2026 between Harbor Labs, Inc. ("Harbor") and Greenfield Studios, LLC ("Greenfield"). Each party may be referred to as a "Party" and collectively as the "Parties."
+
+1. PURPOSE
+The Parties wish to explore a potential business relationship and, in connection with this purpose, may disclose to each other certain confidential and proprietary information.
+
+2. DEFINITION OF CONFIDENTIAL INFORMATION
+"Confidential Information" means any non-public information disclosed by one Party to the other, whether orally, in writing, or by inspection, that is designated as confidential or that reasonably should be understood to be confidential given the nature of the information and the circumstances of disclosure.
+
+3. OBLIGATIONS
+Each receiving Party agrees to (a) use the disclosing Party's Confidential Information solely for the purpose described above, (b) protect such information using the same degree of care it uses for its own confidential information, but no less than a reasonable degree of care, and (c) not disclose such information to any third party without the disclosing Party's prior written consent.
+
+4. EXCLUSIONS
+Confidential Information does not include information that (a) is or becomes publicly available through no fault of the receiving Party, (b) was rightfully known to the receiving Party before disclosure, (c) is independently developed without use of the Confidential Information, or (d) is rightfully received from a third party without a duty of confidentiality.
+
+5. TERM
+This Agreement shall remain in effect for two (2) years from the Effective Date. The confidentiality obligations shall survive for three (3) years following the termination or expiration of this Agreement.
+
+6. RETURN OF MATERIALS
+Upon written request, each receiving Party shall promptly return or destroy all materials containing the disclosing Party's Confidential Information and certify such destruction in writing.
+
+7. NO LICENSE
+Nothing in this Agreement grants either Party any rights in or to the other Party's Confidential Information except as expressly set forth herein. All Confidential Information remains the property of the disclosing Party.
+
+8. NO OBLIGATION
+Nothing in this Agreement obligates either Party to proceed with any transaction or business relationship. Each Party may terminate discussions at any time.
+
+9. GOVERNING LAW
+This Agreement shall be governed by the laws of the State of New York, without regard to its conflict of laws principles.
+
+10. ENTIRE AGREEMENT
+This Agreement constitutes the entire understanding between the Parties regarding its subject matter and supersedes all prior agreements. Any amendment must be in writing and signed by both Parties.
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement as of the date first written above.
+
+HARBOR LABS, INC.                          GREENFIELD STUDIOS, LLC
+
+By: _______________________                By: _______________________
+Name: Priya Nair                           Name: Tom Alvarez
+Title: VP, Business Development             Title: Managing Partner

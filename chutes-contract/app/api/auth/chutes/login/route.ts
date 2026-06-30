@@ -24,7 +24,12 @@ export async function GET() {
 
   const authUrl = `${CHUTES_AUTH_CONFIG.authorizationEndpoint}?${params}`;
 
-  const res = NextResponse.redirect(authUrl);
+  // Route through the Chutes web auth page so users see all login
+  // methods (Google, GitHub, Hotkey, Fingerprint). After they sign in,
+  // it redirects back into the OAuth /authorize flow above.
+  const loginUrl = `${CHUTES_AUTH_CONFIG.webAuthUrl}?redirect_to=${encodeURIComponent(authUrl)}`;
+
+  const res = NextResponse.redirect(loginUrl);
 
   // Attach cookies for the redirect command
   res.cookies.set("chutes_pkce_verifier", codeVerifier, {

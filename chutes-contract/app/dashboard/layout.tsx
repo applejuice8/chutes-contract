@@ -1,11 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { getAllContracts } from '@/lib/contractData';
-import type { Contract } from '@/lib/contractData';
 import { useChutesSession } from '@/hooks/useChutesSession';
 
 const riskColor: Record<string, string> = {
@@ -14,11 +12,48 @@ const riskColor: Record<string, string> = {
   RED: '#ef4444',
 };
 
+interface SidebarContract {
+  id: string;
+  fileName: string;
+  overallRisk: string;
+  analyzedAt: string;
+}
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const contracts = getAllContracts();
   const pathname = usePathname();
   const { logout } = useChutesSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [contracts, setContracts] = useState<SidebarContract[]>([]);
+
+  useEffect(() => {
+    const stored: SidebarContract[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('contract_')) {
+        try {
+          const c = JSON.parse(localStorage.getItem(key)!);
+          stored.push(c);
+        } catch {}
+      }
+    }
+    stored.sort(
+      (a, b) =>
+        new Date(b.analyzedAt).getTime() - new Date(a.analyzedAt).getTime(),
+    );
+    setContracts(stored);
+  }, [pathname]);
 
   return (
     <div className="min-h-screen bg-[#0f0f0e] flex">
@@ -77,7 +112,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               </svg>
             </div>
             <span className="text-white/90 font-semibold text-sm tracking-tight">
-              ChutesContract
+              ProofSign
             </span>
           </div>
 
@@ -96,42 +131,48 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             Your Contracts
           </p>
 
-          <nav className="flex flex-col gap-0.5">
-            {contracts.map((contract: Contract) => {
-              const isActive = pathname === `/dashboard/${contract.id}`;
-              return (
-                <Link
-                  key={contract.id}
-                  href={`/dashboard/${contract.id}`}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`
-                    block px-4 py-3 mx-2 rounded-lg transition-all duration-150
-                    ${
-                      isActive
-                        ? 'bg-white/[0.06] border-l-2 border-[#c8f47b]'
-                        : 'hover:bg-white/[0.03]'
-                    }
-                  `}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{
-                        backgroundColor:
-                          riskColor[contract.overallRisk] ?? riskColor.GREEN,
-                      }}
-                    />
-                    <span className="text-sm text-white/80 truncate">
-                      {contract.name}
-                    </span>
-                  </div>
-                  <p className="text-xs text-white/30 mt-1 ml-4">
-                    {contract.date}
-                  </p>
-                </Link>
-              );
-            })}
-          </nav>
+          {contracts.length === 0 ? (
+            <p className="px-5 text-xs text-white/30">
+              No contracts yet. Upload one to get started.
+            </p>
+          ) : (
+            <nav className="flex flex-col gap-0.5">
+              {contracts.map((contract) => {
+                const isActive = pathname === `/dashboard/${contract.id}`;
+                return (
+                  <Link
+                    key={contract.id}
+                    href={`/dashboard/${contract.id}`}
+                    onClick={() => setSidebarOpen(false)}
+                    className={`
+                      block px-4 py-3 mx-2 rounded-lg transition-all duration-150
+                      ${
+                        isActive
+                          ? 'bg-white/[0.06] border-l-2 border-[#c8f47b]'
+                          : 'hover:bg-white/[0.03]'
+                      }
+                    `}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{
+                          backgroundColor:
+                            riskColor[contract.overallRisk] ?? riskColor.GREEN,
+                        }}
+                      />
+                      <span className="text-sm text-white/80 truncate">
+                        {contract.fileName}
+                      </span>
+                    </div>
+                    <p className="text-xs text-white/30 mt-1 ml-4">
+                      {formatDate(contract.analyzedAt)}
+                    </p>
+                  </Link>
+                );
+              })}
+            </nav>
+          )}
         </div>
 
         {/* Footer */}
